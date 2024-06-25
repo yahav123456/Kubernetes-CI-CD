@@ -1,0 +1,26 @@
+my-app/
+├── app/
+│   ├── static/
+│   ├── templates/
+│   ├── app.py
+│   ├── requirements.txt
+│   ├── .gitattributes
+│   └── .gitignore
+├── helm-charts/
+│   ├── argocd-app/
+│   │   ├── templates/
+│   │   │   └── application.yaml
+│   │   ├── Chart.yaml
+│   │   └── values.yaml
+│   ├── todo-app/
+│   │   ├── templates/
+│   │   │   ├── service.yaml
+│   │   │   ├── deployment.yaml
+│   │   │   └── _helpers.tpl
+│   │   ├── Chart.yaml
+│   │   └── values.yaml
+├── agent.yaml
+├── argocd.yaml
+├── Dockerfile
+├── Jenkinsfile
+└── README.md

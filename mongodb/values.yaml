@@ -1,0 +1,6 @@
+architecture: standalone
+auth:
+  rootPassword: mongoDB
+service:
+  type: NodePort
+  nodePort: 32017

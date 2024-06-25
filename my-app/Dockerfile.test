@@ -1,0 +1,21 @@
+# Use an official Python runtime as a parent image
+FROM python:3.9-buster
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the requirements.txt file into the container at /app
+COPY app/requirements.txt .
+
+# Install any needed packages specified in requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy the current directory contents into the container at /app
+COPY app/ /app/app
+COPY tests/ /app/tests
+
+# Set the PYTHONPATH to include the /app directory
+ENV PYTHONPATH=/app
+
+# Run pytest when the container launches
+CMD ["pytest", "--maxfail=1", "--disable-warnings", "-v"]

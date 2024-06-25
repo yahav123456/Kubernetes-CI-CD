@@ -1,0 +1,127 @@
+pipeline {
+    agent {
+        kubernetes {
+            label 'dind-agent'
+            yamlFile 'agent.yaml'
+        }
+    }
+
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub')
+        DOCKER_IMAGE = "yahav12321/todo-app"
+        VERSION = "${env.BUILD_NUMBER}"
+        GITLAB_CREDENTIALS = credentials('gitlab_creds')
+        HELM_REGISTRY = 'oci://registry-1.docker.io/yahav12321'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                container('ez-docker-helm-build') {
+                    script {
+                        sh 'git config --global --add safe.directory /home/jenkins/agent/workspace/2222_main'
+                        def authorName = sh(
+                            script: "git log -1 --pretty=format:'%an'",
+                            returnStdout: true
+                        ).trim()
+                        if (authorName == "jenkins") {
+                            currentBuild.result = 'SUCCESS'
+                            error "Skipping build due to Jenkins commit"
+                        }
+                    }
+                    git branch: 'main', url: 'https://gitlab.com/sela-tracks/1099/students/yahavbs100/infrastructures/my-app.git', credentialsId: 'gitlab_creds'
+                }
+            }
+        }
+
+        stage('Build and Push Docker Image') {
+            when {
+                branch 'main'
+            }
+            steps {
+                container('ez-docker-helm-build') {
+                    sh 'dockerd &'
+                    sh 'sleep 10'
+                    sh "docker build -t ${DOCKER_IMAGE}:${VERSION} ."
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh '''
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push ${DOCKER_IMAGE}:${VERSION}
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Unit Test') {
+            steps {
+                container('ez-docker-helm-build') {
+                    script {
+                        sh "docker-compose up --build test-app"
+                        sh "docker-compose down"
+                    }
+                }
+            }
+        }
+
+        stage('Update Helm Chart') {
+            when {
+                branch 'main'
+            }
+            steps {
+                container('ez-docker-helm-build') {
+                    withCredentials([usernamePassword(credentialsId: 'gitlab_creds', usernameVariable: 'GITLAB_USER', passwordVariable: 'GITLAB_PASS')]) {
+                        script {
+                            def gitlabUserEncoded = GITLAB_USER.replaceAll('@', '%40')
+                            sh """
+                            git config --global --add safe.directory /home/jenkins/agent/workspace/2222_main
+                            git config user.name 'jenkins'
+                            git config user.email 'jenkins@example.com'
+                            git pull https://${gitlabUserEncoded}:${GITLAB_PASS}@gitlab.com/sela-tracks/1099/students/yahavbs100/infrastructures/my-app.git || true
+                            sed -i 's/tag:.*/tag: \"${VERSION}\"/' helm-charts/todo-app/values.yaml
+                            sed -i 's/^version: .*/version: \"${VERSION}.0.0\"/' helm-charts/helmapp/Chart.yaml
+                            sed -i 's/tag:.*/tag: \"${VERSION}\"/' helm-charts/helmapp/values.yaml
+                            git add helm-charts/todo-app/values.yaml helm-charts/helmapp/Chart.yaml helm-charts/helmapp/values.yaml
+                            git commit -m 'Update image tag to ${VERSION}'
+                            git push https://${gitlabUserEncoded}:${GITLAB_PASS}@gitlab.com/sela-tracks/1099/students/yahavbs100/infrastructures/my-app.git HEAD:main
+                            """
+                            // Debugging statements to verify the file contents after updating
+                            sh 'cat helm-charts/helmapp/Chart.yaml'
+                            sh 'cat helm-charts/helmapp/values.yaml'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Package Helm Chart') {
+            steps {
+                container('ez-docker-helm-build') {
+                    script {
+                        sh "helm package helm-charts/helmapp"
+                    }
+                }
+            }
+        }
+
+        stage('Login to DockerHub for Helm Push') {
+            steps {
+                container('ez-docker-helm-build') {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh 'docker login --username "$DOCKER_USERNAME" --password "$DOCKER_PASSWORD"'
+                    }
+                }
+            }
+        }
+
+        stage('Push Helm Chart to DockerHub') {
+            steps {
+                container('ez-docker-helm-build') {
+                    script {
+                        sh "helm push helmapp-${VERSION}.0.0.tgz ${HELM_REGISTRY}"
+                    }
+                }
+            }
+        }
+    }
+}
